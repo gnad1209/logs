@@ -1,0 +1,4 @@
+node_modules/
+.env
+src/modules/mongodLog/exports
+src/modules/mongodLog/uploads
