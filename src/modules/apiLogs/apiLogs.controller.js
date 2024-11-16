@@ -16,97 +16,22 @@ const apiLogs = async (req, res, next) => {
     const validateDate =
       (startDate && !moment(startDate, 'YYYY-MM-DD', true).isValid()) ||
       (endDate && !moment(endDate, 'YYYY-MM-DD', true).isValid());
-    if (validateDate) {
-      return res.status(400).json('Ngày bắt đầu và kết thúc phải có dạng YYYY/MM/DD');
+    if ((startDate || endDate) && validateDate) {
+      console.log('Ngày bắt đầu và kết thúc phải có dạng YYYY/MM/DD');
+      return;
     }
-    let start = null;
-    let end = null;
 
     const checkPathLogs = service.existsPath(pathLogs);
     if (!checkPathLogs) {
       await fsPromises.mkdir(pathLogs);
     }
+    // phân tích từng file tải lên
     files.forEach((file) => {
       const data = fs.readFileSync(path.join(pathLogs, file.filename), 'utf8');
       const lines = data.split('\n');
-      const endPointRegex = /(OPTIONS|GET|POST|PUT|DELETE)\s(\/[^\s]*)\s.*?(\d+\.\d+)\sms/;
-      const timeRegex = /\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\]/;
 
-      lines.forEach((line) => {
-        const matchTime = line.match(timeRegex);
-        if (matchTime) {
-          const logDate = moment(matchTime[1]); // Lấy thời gian từ log và chuyển đổi thành Moment.js
-
-          // Thiết lập start nếu chưa có
-          if (!start) {
-            start = logDate;
-          }
-          // Cập nhật end mỗi khi tìm thấy một logDate
-          end = logDate; // Cập nhật end tới logDate mới nhất
-        }
-      });
-
-      // Nếu không có startDate và endDate từ yêu cầu
-      if (!startDate && !endDate) {
-        // In ra toàn bộ log
-        lines.forEach((line) => {
-          const match = line.match(endPointRegex);
-          if (match) {
-            const method = match[1];
-            const { normalizedPath, filters = [] } = service.normalizeEndpoint(match[2]);
-            const time = parseFloat(match[3]);
-            const key = `${method} ${normalizedPath}`;
-            if (!apiStats[key]) {
-              apiStats[key] = { count: 0, totalTime: 0, details: {} };
-            }
-            apiStats[key].count += 1;
-            apiStats[key].totalTime += time;
-
-            // Cập nhật details với filters
-            filters.forEach((filter) => {
-              if (!apiStats[key].details[filter]) {
-                apiStats[key].details[filter] = 0;
-              }
-            });
-          }
-        });
-      } else {
-        // Nếu có startDate hoặc endDate, lọc theo khoảng thời gian
-        start = startDate ? moment(startDate) : start;
-        end = endDate ? moment(endDate) : end;
-
-        lines.forEach((line) => {
-          const matchTime = line.match(timeRegex);
-          if (matchTime) {
-            const logDate = moment(matchTime[1]); // Lấy thời gian từ log
-
-            // Kiểm tra xem logDate có nằm trong khoảng thời gian không
-            if (logDate.isSameOrAfter(start) && logDate.isSameOrBefore(end)) {
-              const match = line.match(endPointRegex);
-              if (match) {
-                const method = match[1];
-                const { normalizedPath, filters = {} } = service.normalizeEndpoint(match[2]);
-                const time = parseFloat(match[3]);
-                const key = `${method} ${normalizedPath}`;
-
-                if (!apiStats[key]) {
-                  apiStats[key] = { count: 0, totalTime: 0, details: {} };
-                }
-
-                apiStats[key].count += 1;
-                apiStats[key].totalTime += time;
-
-                // Cập nhật details với filters
-                filters.forEach((filter) => {
-                  if (!apiStats[key].details[filter]) {
-                    apiStats[key].details[filter] = 0;
-                  }
-                });
-              }
-            }
-          }
-        });
-      }
+      // Gọi hàm để xử lý các dòng log
+      service.processLogLines(lines, apiStats, startDate, endDate);
 
       // Xóa file log sau khi xử lý
       try {
@@ -196,13 +121,13 @@ const apiLogs = async (req, res, next) => {
       if (err) {
         fs.unlinkSync(filePath);
         console.error('Error sending file:', err);
-        res.status(500).json({ message: 'Error downloading file' });
       }
       console.log('Tải thành công file excel');
       fs.unlinkSync(filePath);
     });
   } catch (e) {
-    return res.status(400).json(e);
+    console.log(e);
+    return;
   }
 };
 

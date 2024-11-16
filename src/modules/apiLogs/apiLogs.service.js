@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
+const moment = require('moment');
 
 function existsPath(pathToCheck) {
   try {
@@ -14,6 +15,89 @@ function existsPath(pathToCheck) {
     throw err; // Ném ra lỗi khác nếu có
   }
 }
+
+const processLogLines = (lines, apiStats, startDate, endDate) => {
+  const endPointRegex = /(OPTIONS|GET|POST|PUT|DELETE)\s(\/[^\s]*)\s.*?(\d+\.\d+)\sms/;
+  const timeRegex = /\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\]/;
+  let start = null;
+  let end = null;
+
+  lines.forEach((line) => {
+    const matchTime = line.match(timeRegex);
+    if (matchTime) {
+      const logDate = moment(matchTime[1]);
+
+      // Thiết lập start nếu chưa có
+      if (!start) {
+        start = logDate;
+      }
+      // Cập nhật end mỗi khi tìm thấy một logDate
+      end = logDate; // Cập nhật end tới logDate mới nhất
+    }
+  });
+
+  // Nếu không có startDate và endDate từ yêu cầu
+  if (!startDate && !endDate) {
+    // In ra toàn bộ log
+    lines.forEach((line) => {
+      const match = line.match(endPointRegex);
+      if (match) {
+        const method = match[1];
+        const { normalizedPath, filters = [] } = normalizeEndpoint(match[2]);
+        const time = parseFloat(match[3]);
+        const key = `${method} ${normalizedPath}`;
+        if (!apiStats[key]) {
+          apiStats[key] = { count: 0, totalTime: 0, details: {} };
+        }
+        apiStats[key].count += 1;
+        apiStats[key].totalTime += time;
+
+        // Cập nhật details với filters
+        filters.forEach((filter) => {
+          if (!apiStats[key].details[filter]) {
+            apiStats[key].details[filter] = 0;
+          }
+        });
+      }
+    });
+  } else {
+    // Nếu có startDate hoặc endDate, lọc theo khoảng thời gian
+    start = startDate ? moment(startDate) : start;
+    end = endDate ? moment(endDate) : end;
+
+    lines.forEach((line) => {
+      const matchTime = line.match(timeRegex);
+      if (matchTime) {
+        const logDate = moment(matchTime[1]);
+
+        // Kiểm tra xem logDate có nằm trong khoảng thời gian không
+        if (logDate.isSameOrAfter(start) && logDate.isSameOrBefore(end)) {
+          const match = line.match(endPointRegex);
+          if (match) {
+            const method = match[1];
+            const { normalizedPath, filters = [] } = normalizeEndpoint(match[2]);
+            const time = parseFloat(match[3]);
+            const key = `${method} ${normalizedPath}`;
+
+            if (!apiStats[key]) {
+              apiStats[key] = { count: 0, totalTime: 0, details: {} };
+            }
+
+            apiStats[key].count += 1;
+            apiStats[key].totalTime += time;
+
+            // Cập nhật details với filters
+            filters.forEach((filter) => {
+              if (!apiStats[key].details[filter]) {
+                apiStats[key].details[filter] = 0;
+              }
+            });
+          }
+        }
+      }
+    });
+  }
+};
 
 function normalizeEndpoint(endpoint) {
   const normalizedPath = endpoint.replace(/\/[0-9a-fA-F]{24}(?=\?|\/|$)/g, '/:id');
@@ -84,4 +168,5 @@ function normalizeEndpoint(endpoint) {
 module.exports = {
   existsPath,
   normalizeEndpoint,
+  processLogLines,
 };

@@ -1,3 +1,4 @@
 node_modules/
 src/modules/mongodLog/exports
 src/modules/mongodLog/uploads
+src/files/
